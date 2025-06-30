@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import numpy as np
 import requests
-from bs4 import BeautifulSoup
 from sklearn.linear_model import LogisticRegression
 
 app = FastAPI()
@@ -18,26 +17,20 @@ app.add_middleware(
 @app.get("/api/mlb/picks")
 def get_mlb_picks():
     try:
-        url = 'https://sports.yahoo.com/mlb/probable-pitchers/'
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(res.content, 'html.parser')
+        today_url = "https://statsapi.mlb.com/api/v1/schedule/games/?sportId=1"
+        game_data = requests.get(today_url).json()
 
         matchups = []
-        games = soup.select('li.js-stream-content')
+        for date in game_data.get("dates", []):
+            for game in date.get("games", []):
+                teams = f"{game['teams']['away']['team']['name']} at {game['teams']['home']['team']['name']}"
+                home_team = game['teams']['home']['team']['name']
+                away_team = game['teams']['away']['team']['name']
 
-        for game in games:
-            header = game.select_one('h3')
-            if not header or 'vs' not in header.text:
-                continue
-            teams = header.text.strip()
-            pitchers = game.select('p')
-            if len(pitchers) >= 2:
-                away_pitcher = pitchers[0].text.strip()
-                home_pitcher = pitchers[1].text.strip()
                 matchups.append({
                     'matchup': teams,
-                    'home_pitcher': home_pitcher,
-                    'away_pitcher': away_pitcher,
+                    'home_pitcher': 'TBD',
+                    'away_pitcher': 'TBD',
                     'home_win_pct': np.random.uniform(0.45, 0.65),
                     'away_win_pct': np.random.uniform(0.45, 0.65),
                     'home_recent_form': np.random.uniform(0.4, 0.6),
@@ -61,8 +54,6 @@ def get_mlb_picks():
         for _, row in df.iterrows():
             if ' at ' in row['matchup']:
                 teams = row['matchup'].split(' at ')
-            elif ' vs ' in row['matchup']:
-                teams = row['matchup'].split(' vs ')
             else:
                 teams = row['matchup'].split('-')
             rec = f"{teams[1].strip()} ML" if row['win_prob'] > 0.5 else f"{teams[0].strip()} ML"
@@ -79,3 +70,5 @@ def get_mlb_picks():
 
     except Exception as e:
         return {"error": str(e)}
+
+
