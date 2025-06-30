@@ -18,33 +18,32 @@ app.add_middleware(
 @app.get("/api/mlb/picks")
 def get_mlb_picks():
     try:
-        url = 'https://www.espn.com/mlb/probablepitchers'
-        res = requests.get(url)
+        url = 'https://sports.yahoo.com/mlb/probable-pitchers/'
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
         soup = BeautifulSoup(res.content, 'html.parser')
 
-        # 👇 Print first 2000 characters of ESPN page to Render logs
-        print(soup.prettify()[:2000])
-
         matchups = []
-        tables = soup.find_all('table')
-        for table in tables:
-            rows = table.find_all('tr')[1:]  # Skip header
-            for row in rows:
-                cols = row.find_all('td')
-                if len(cols) >= 3:
-                    teams = cols[0].get_text(strip=True)
-                    away_pitcher = cols[1].get_text(strip=True)
-                    home_pitcher = cols[2].get_text(strip=True)
-                    matchups.append({
-                        'matchup': teams,
-                        'home_pitcher': home_pitcher,
-                        'away_pitcher': away_pitcher,
-                        'home_win_pct': np.random.uniform(0.45, 0.65),
-                        'away_win_pct': np.random.uniform(0.45, 0.65),
-                        'home_recent_form': np.random.uniform(0.4, 0.6),
-                        'away_recent_form': np.random.uniform(0.4, 0.6),
-                        'stadium_hr_factor': np.random.uniform(0.9, 1.2),
-                    })
+        games = soup.select('li.js-stream-content')
+
+        for game in games:
+            header = game.select_one('h3')
+            if not header or 'vs' not in header.text:
+                continue
+            teams = header.text.strip()
+            pitchers = game.select('p')
+            if len(pitchers) >= 2:
+                away_pitcher = pitchers[0].text.strip()
+                home_pitcher = pitchers[1].text.strip()
+                matchups.append({
+                    'matchup': teams,
+                    'home_pitcher': home_pitcher,
+                    'away_pitcher': away_pitcher,
+                    'home_win_pct': np.random.uniform(0.45, 0.65),
+                    'away_win_pct': np.random.uniform(0.45, 0.65),
+                    'home_recent_form': np.random.uniform(0.4, 0.6),
+                    'away_recent_form': np.random.uniform(0.4, 0.6),
+                    'stadium_hr_factor': np.random.uniform(0.9, 1.2),
+                })
 
         if not matchups:
             return {"error": "No matchups found today"}
