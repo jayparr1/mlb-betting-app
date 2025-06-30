@@ -20,23 +20,28 @@ def get_mlb_picks():
     try:
         url = 'https://www.espn.com/mlb/probablepitchers'
         res = requests.get(url)
-        soup = BeautifulSoup(res.content, 'lxml')
+        soup = BeautifulSoup(res.content, 'html.parser')
         matchups = []
-        for item in soup.select('.Table__TR')[1:]:
-            cols = item.select('.Table__TD')
-            if len(cols) >= 3:
-                teams = cols[0].text.strip()
-                pitchers = cols[1].text.strip(), cols[2].text.strip()
-                matchups.append({
-                    'matchup': teams,
-                    'home_pitcher': pitchers[1],
-                    'away_pitcher': pitchers[0],
-                    'home_win_pct': np.random.uniform(0.45, 0.65),
-                    'away_win_pct': np.random.uniform(0.45, 0.65),
-                    'home_recent_form': np.random.uniform(0.4, 0.6),
-                    'away_recent_form': np.random.uniform(0.4, 0.6),
-                    'stadium_hr_factor': np.random.uniform(0.9, 1.2),
-                })
+
+        tables = soup.find_all('table')
+        for table in tables:
+            rows = table.find_all('tr')[1:]  # Skip header
+            for row in rows:
+                cols = row.find_all('td')
+                if len(cols) >= 3:
+                    teams = cols[0].get_text(strip=True)
+                    away_pitcher = cols[1].get_text(strip=True)
+                    home_pitcher = cols[2].get_text(strip=True)
+                    matchups.append({
+                        'matchup': teams,
+                        'home_pitcher': home_pitcher,
+                        'away_pitcher': away_pitcher,
+                        'home_win_pct': np.random.uniform(0.45, 0.65),
+                        'away_win_pct': np.random.uniform(0.45, 0.65),
+                        'home_recent_form': np.random.uniform(0.4, 0.6),
+                        'away_recent_form': np.random.uniform(0.4, 0.6),
+                        'stadium_hr_factor': np.random.uniform(0.9, 1.2),
+                    })
 
         if not matchups:
             return {"error": "No matchups found today"}
