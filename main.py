@@ -21,8 +21,11 @@ def get_mlb_picks():
         url = 'https://www.espn.com/mlb/probablepitchers'
         res = requests.get(url)
         soup = BeautifulSoup(res.content, 'html.parser')
-        matchups = []
 
+        # 👇 Print first 2000 characters of ESPN page to Render logs
+        print(soup.prettify()[:2000])
+
+        matchups = []
         tables = soup.find_all('table')
         for table in tables:
             rows = table.find_all('tr')[1:]  # Skip header
