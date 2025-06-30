@@ -1,7 +1,5 @@
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 import pandas as pd
 import numpy as np
 import requests
@@ -53,8 +51,8 @@ def get_mlb_picks():
 
         picks = []
         for _, row in df.iterrows():
-            team_names = row['matchup'].split(' at ')
-            rec = f"{team_names[-1]} ML" if row['win_prob'] > 0.5 else f"{team_names[0]} ML"
+            teams = row['matchup'].split(' at ')
+            rec = f"{teams[1]} ML" if row['win_prob'] > 0.5 else f"{teams[0]} ML"
             picks.append({
                 'matchup': row['matchup'],
                 'recommendation': rec,
