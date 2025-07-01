@@ -45,18 +45,31 @@ def fetch_pitchers():
 
 @app.get("/api/mlb/picks")
 def get_mlb_picks():
-    odds_response = requests.get(
-        ODDS_API_URL,
-        params={"apiKey": API_KEY, "bookmakers": BOOKMAKER, "markets": "h2h", "dateFormat": "iso"}
-    )
-    
+    odds_data = []
     try:
-    if odds_response.status_code != 200:
-        return {"error": f"Odds API failed with status {odds_response.status_code}", "text": odds_response.text}
-    odds_data = odds_response.json()
-except Exception as e:
-    return {"error": f"Could not decode odds API response: {str(e)}", "raw": odds_response.text}
+        odds_response = requests.get(
+            ODDS_API_URL,
+            params={
+                "apiKey": API_KEY,
+                "bookmakers": BOOKMAKER,
+                "markets": "h2h",
+                "dateFormat": "iso"
+            }
+        )
 
+        if odds_response.status_code != 200:
+            return {
+                "error": f"Odds API request failed",
+                "status": odds_response.status_code,
+                "response": odds_response.text
+            }
+
+        odds_data = odds_response.json()
+    except Exception as e:
+        return {
+            "error": f"Could not decode odds API response: {str(e)}",
+            "raw_response": odds_response.text if 'odds_response' in locals() else 'No response received.'
+        }
 
     pitchers = fetch_pitchers()
     picks = []
