@@ -16,16 +16,17 @@ app.add_middleware(
 )
 
 ODDS_API_KEY = "6638784dcfb3dfa46904e848dc010af8"
-ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/baseball_ml/mlb/odds"
+ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
 REGION = "us"
 MARKETS = "h2h"
+ODDS_FORMAT = "american"
 
 def normalize(name):
     return re.sub(r'[^a-z]', '', name.lower())
 
 def fetch_odds():
     try:
-        url = f"{ODDS_API_URL}?apiKey={ODDS_API_KEY}&regions={REGION}&markets={MARKETS}"
+        url = f"{ODDS_API_URL}?apiKey={ODDS_API_KEY}&regions={REGION}&markets={MARKETS}&oddsFormat={ODDS_FORMAT}"
         res = requests.get(url, timeout=10)
         data = res.json()
         odds_dict = {}
