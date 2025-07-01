@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
+import requests
 import random
 
 app = FastAPI()
@@ -13,7 +14,38 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Mock matchup generator
+# DraftKings MLB event group ID
+DK_URL = "https://sportsbook.draftkings.com/sites/US-SB/api/v5/eventgroups/84240?format=json"
+
+def get_dk_odds():
+    try:
+        response = requests.get(DK_URL, timeout=10)
+        data = response.json()
+        games = data.get("eventGroup", {}).get("events", [])
+        teams = {t["id"]: t["name"] for t in data.get("eventGroup", {}).get("teams", [])}
+        odds_dict = {}
+        for game in games:
+            home_id = game.get("homeTeamId")
+            away_id = game.get("awayTeamId")
+            matchup = f"{teams.get(away_id)} at {teams.get(home_id)}"
+            event_id = game.get("eventId")
+            for offer in data.get("eventGroup", {}).get("offerCategories", []):
+                for sub in offer.get("offerSubcategoryDescriptors", []):
+                    for offer_obj in sub.get("offers", []):
+                        for o in offer_obj:
+                            if o.get("eventId") == event_id and o.get("label") in [teams.get(home_id), teams.get(away_id)]:
+                                odds_dict.setdefault(matchup, {})[o["label"]] = o["outcomes"][0]["oddsAmerican"]
+        return odds_dict
+    except Exception as e:
+        print("Failed to fetch DraftKings odds:", e)
+        return {}
+
+def american_to_decimal(odds):
+    if odds > 0:
+        return 1 + odds / 100
+    else:
+        return 1 + 100 / abs(odds)
+
 def generate_mock_picks():
     teams = [
         ("San Diego Padres", "Philadelphia Phillies"),
@@ -25,15 +57,27 @@ def generate_mock_picks():
         ("Kansas City Royals", "Seattle Mariners"),
         ("San Francisco Giants", "Arizona Diamondbacks"),
     ]
+    dk_odds = get_dk_odds()
     picks = []
     for away, home in teams:
+        matchup = f"{away} at {home}"
+        odds_data = dk_odds.get(matchup, {})
+        chosen_team = away
+        odds = odds_data.get(chosen_team)
+        if odds is None:
+            odds = 110  # fallback
+        try:
+            odds = int(odds)
+        except:
+            odds = 110
         win_prob = round(random.uniform(0.35, 0.65), 3)
-        ev = round((win_prob * (110 / 100)) - 1, 3)
+        payout = american_to_decimal(odds)
+        ev = round((win_prob * payout) - 1, 3)
         picks.append({
-            "matchup": f"{away} at {home}",
-            "recommendation": f"{away} ML",
+            "matchup": matchup,
+            "recommendation": f"{chosen_team} ML",
             "winProb": win_prob,
-            "odds": 110,
+            "odds": odds,
             "ev": ev,
             "parlay": win_prob > 0.5,
             "away_pitcher": "TBD",
