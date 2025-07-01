@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import requests
 import random
+import re
 
 app = FastAPI()
 
@@ -19,6 +20,9 @@ ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/baseball_ml/mlb/odds"
 REGION = "us"
 MARKETS = "h2h"
 
+def normalize(name):
+    return re.sub(r'[^a-z]', '', name.lower())
+
 def fetch_odds():
     try:
         url = f"{ODDS_API_URL}?apiKey={ODDS_API_KEY}&regions={REGION}&markets={MARKETS}"
@@ -26,24 +30,21 @@ def fetch_odds():
         data = res.json()
         odds_dict = {}
         for game in data:
-            if "bookmakers" not in game or not game["bookmakers"]:
-                continue
-            bookmaker = game["bookmakers"][0]
-            for outcome in bookmaker["markets"][0]["outcomes"]:
-                team = outcome["name"]
-                odds = outcome.get("price", None)
-                if odds is not None:
-                    odds_dict.setdefault(f"{game['home_team']} vs {game['away_team']}", {})[team] = odds
+            home = game["home_team"]
+            away = game["away_team"]
+            norm_key = f"{normalize(away)}_at_{normalize(home)}"
+            if "bookmakers" in game and game["bookmakers"]:
+                bm = game["bookmakers"][0]
+                for outcome in bm["markets"][0]["outcomes"]:
+                    odds_dict.setdefault(norm_key, {})[normalize(outcome["name"])] = outcome.get("price", 110)
+        print("Fetched odds keys:", list(odds_dict.keys()))
         return odds_dict
     except Exception as e:
-        print("Failed to fetch live odds:", e)
+        print("Error fetching odds:", e)
         return {}
 
 def american_to_decimal(odds):
-    if odds > 0:
-        return 1 + odds / 100
-    else:
-        return 1 + 100 / abs(odds)
+    return 1 + odds / 100 if odds > 0 else 1 + 100 / abs(odds)
 
 def generate_picks():
     games = [
@@ -60,10 +61,11 @@ def generate_picks():
     picks = []
 
     for away, home in games:
-        matchup_key = f"{home} vs {away}"
+        norm_key = f"{normalize(away)}_at_{normalize(home)}"
         matchup = f"{away} at {home}"
-        team_odds = odds_data.get(matchup_key, {})
-        odds = team_odds.get(away, 110)
+        team_key = normalize(away)
+        team_odds = odds_data.get(norm_key, {})
+        odds = team_odds.get(team_key, 110)
         try:
             odds = int(odds)
         except:
@@ -89,8 +91,7 @@ def generate_picks():
 def get_picks():
     today = datetime.now().strftime("%Y-%m-%d")
     print(f"Returning picks for {today}")
-    picks = generate_picks()
-    return picks
+    return generate_picks()
 
 @app.get("/api/mlb/results")
 def get_results():
