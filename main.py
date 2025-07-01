@@ -1,10 +1,8 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
 import requests
-import random
-import re
+import datetime
 
 app = FastAPI()
 
@@ -15,85 +13,92 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-ODDS_API_KEY = "6638784dcfb3dfa46904e848dc010af8"
-ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
-REGION = "us"
-MARKETS = "h2h"
-ODDS_FORMAT = "american"
+API_KEY = "6638784dcfb3dfa46904e848dc010af8"
+ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/baseball_ml/mlb/odds"
+BOOKMAKER = "draftkings"
 
-def normalize(name):
-    return re.sub(r'[^a-z]', '', name.lower())
+def normalize_team(name):
+    return name.lower().replace(" ", "").replace(".", "")
 
-def fetch_odds():
+def fetch_pitchers():
+    today = datetime.date.today().strftime('%Y-%m-%d')
+    url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}&hydrate=probablePitcher"
     try:
-        url = f"{ODDS_API_URL}?apiKey={ODDS_API_KEY}&regions={REGION}&markets={MARKETS}&oddsFormat={ODDS_FORMAT}"
-        res = requests.get(url, timeout=10)
-        data = res.json()
-        odds_dict = {}
-        for game in data:
-            home = game["home_team"]
-            away = game["away_team"]
-            norm_key = f"{normalize(away)}_at_{normalize(home)}"
-            if "bookmakers" in game and game["bookmakers"]:
-                bm = game["bookmakers"][0]
-                for outcome in bm["markets"][0]["outcomes"]:
-                    odds_dict.setdefault(norm_key, {})[normalize(outcome["name"])] = outcome.get("price", 110)
-        print("Fetched odds keys:", list(odds_dict.keys()))
-        return odds_dict
+        response = requests.get(url)
+        data = response.json()
+        matchups = {}
+        for date in data.get("dates", []):
+            for game in date.get("games", []):
+                home = game["teams"]["home"]["team"]["name"]
+                away = game["teams"]["away"]["team"]["name"]
+                home_pitcher = game["teams"]["home"].get("probablePitcher", {}).get("fullName", "TBD")
+                away_pitcher = game["teams"]["away"].get("probablePitcher", {}).get("fullName", "TBD")
+                matchup_key = normalize_team(away) + "at" + normalize_team(home)
+                matchups[matchup_key] = {
+                    "home_pitcher": home_pitcher,
+                    "away_pitcher": away_pitcher
+                }
+        return matchups
     except Exception as e:
-        print("Error fetching odds:", e)
+        print(f"Error fetching pitchers: {e}")
         return {}
 
-def american_to_decimal(odds):
-    return 1 + odds / 100 if odds > 0 else 1 + 100 / abs(odds)
+@app.get("/api/mlb/picks")
+def get_mlb_picks():
+    odds_response = requests.get(
+        ODDS_API_URL,
+        params={"apiKey": API_KEY, "bookmakers": BOOKMAKER, "markets": "h2h", "dateFormat": "iso"}
+    )
+    try:
+        odds_data = odds_response.json()
+    except:
+        return {"error": "Could not decode odds API response."}
 
-def generate_picks():
-    games = [
-        ("San Diego Padres", "Philadelphia Phillies"),
-        ("St. Louis Cardinals", "Pittsburgh Pirates"),
-        ("New York Yankees", "Toronto Blue Jays"),
-        ("Cincinnati Reds", "Boston Red Sox"),
-        ("Oakland Athletics", "Tampa Bay Rays"),
-        ("Baltimore Orioles", "Texas Rangers"),
-        ("Kansas City Royals", "Seattle Mariners"),
-        ("San Francisco Giants", "Arizona Diamondbacks"),
-    ]
-    odds_data = fetch_odds()
+    pitchers = fetch_pitchers()
     picks = []
 
-    for away, home in games:
-        norm_key = f"{normalize(away)}_at_{normalize(home)}"
-        matchup = f"{away} at {home}"
-        team_key = normalize(away)
-        team_odds = odds_data.get(norm_key, {})
-        odds = team_odds.get(team_key, 110)
+    for game in odds_data:
         try:
-            odds = int(odds)
-        except:
-            odds = 110
-        win_prob = round(random.uniform(0.35, 0.65), 3)
-        payout = american_to_decimal(odds)
-        ev = round((win_prob * payout) - 1, 3)
+            home_team = game["home_team"]
+            away_team = [t for t in game["teams"] if t != home_team][0]
+            matchup = f"{away_team} at {home_team}"
+            key = normalize_team(away_team) + "at" + normalize_team(home_team)
 
-        picks.append({
-            "matchup": matchup,
-            "recommendation": f"{away} ML",
-            "winProb": win_prob,
-            "odds": odds,
-            "ev": ev,
-            "parlay": win_prob > 0.5,
-            "away_pitcher": "TBD",
-            "home_pitcher": "TBD"
-        })
+            markets = game.get("bookmakers", [])[0].get("markets", [])
+            if not markets:
+                continue
+
+            outcomes = markets[0].get("outcomes", [])
+            away_odds = next((o["price"] for o in outcomes if o["name"] == away_team), None)
+            home_odds = next((o["price"] for o in outcomes if o["name"] == home_team), None)
+
+            if away_odds is None or home_odds is None:
+                continue
+
+            away_prob = 100 / (away_odds + 100) if away_odds > 0 else abs(away_odds) / (abs(away_odds) + 100)
+            home_prob = 100 / (home_odds + 100) if home_odds > 0 else abs(home_odds) / (abs(home_odds) + 100)
+
+            total = away_prob + home_prob
+            away_prob /= total
+            home_prob /= total
+
+            recommendation = away_team if away_prob > home_prob else home_team
+            win_prob = max(away_prob, home_prob)
+            odds = away_odds if recommendation == away_team else home_odds
+            ev = ((win_prob * (odds if odds > 0 else odds / 100 * 100)) - (1 - win_prob) * 100) / 100
+            parlay = ev > 0.05
+
+            picks.append({
+                "matchup": matchup,
+                "recommendation": recommendation,
+                "winProb": round(win_prob, 3),
+                "odds": odds,
+                "ev": round(ev, 3),
+                "parlay": parlay,
+                "home_pitcher": pitchers.get(key, {}).get("home_pitcher", "TBD"),
+                "away_pitcher": pitchers.get(key, {}).get("away_pitcher", "TBD")
+            })
+        except Exception as e:
+            print(f"Error processing game: {e}")
 
     return picks
-
-@app.get("/api/mlb/picks")
-def get_picks():
-    today = datetime.now().strftime("%Y-%m-%d")
-    print(f"Returning picks for {today}")
-    return generate_picks()
-
-@app.get("/api/mlb/results")
-def get_results():
-    return {}
