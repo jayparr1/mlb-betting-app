@@ -49,10 +49,14 @@ def get_mlb_picks():
         ODDS_API_URL,
         params={"apiKey": API_KEY, "bookmakers": BOOKMAKER, "markets": "h2h", "dateFormat": "iso"}
     )
+    
     try:
-        odds_data = odds_response.json()
-    except:
-        return {"error": "Could not decode odds API response."}
+    if odds_response.status_code != 200:
+        return {"error": f"Odds API failed with status {odds_response.status_code}", "text": odds_response.text}
+    odds_data = odds_response.json()
+except Exception as e:
+    return {"error": f"Could not decode odds API response: {str(e)}", "raw": odds_response.text}
+
 
     pitchers = fetch_pitchers()
     picks = []
